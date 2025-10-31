@@ -1312,7 +1312,8 @@ def main(args):
 
         # load attention processors
         pipeline.load_lora_weights(args.output_dir)
-
+         
+        images = None    
         # run inference
         if args.validation_prompt and args.num_validation_images > 0:
             images = log_validation(pipeline, args, accelerator, epoch, is_final_validation=True)
