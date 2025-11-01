@@ -919,9 +919,10 @@ def main(args):
                 # Shuffle words in caption if requested
                 if is_train and args.shuffle_caption_words:
                     original_caption = caption
-                    words = caption.split()
-                    random.shuffle(words)
-                    caption = ' '.join(words)
+                    # Split by comma to get tags, then shuffle
+                    tags = [tag.strip() for tag in caption.split(',')]
+                    random.shuffle(tags)
+                    caption = ', '.join(tags)
                     print(f"Original caption: {original_caption}")
                     print(f"Shuffled caption: {caption}")
                 captions.append(caption)
@@ -931,9 +932,10 @@ def main(args):
                 # Shuffle words in caption if requested
                 if is_train and args.shuffle_caption_words and isinstance(selected_caption, str):
                     original_caption = selected_caption
-                    words = selected_caption.split()
-                    random.shuffle(words)
-                    selected_caption = ' '.join(words)
+                    # Split by comma to get tags, then shuffle
+                    tags = [tag.strip() for tag in selected_caption.split(',')]
+                    random.shuffle(tags)
+                    selected_caption = ', '.join(tags)
                     print(f"Original caption: {original_caption}")
                     print(f"Shuffled caption: {selected_caption}")
                 captions.append(selected_caption)
