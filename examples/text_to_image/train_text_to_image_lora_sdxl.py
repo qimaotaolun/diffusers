@@ -1268,7 +1268,11 @@ def main(args):
                 # Backpropagate
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
-                    accelerator.clip_grad_norm_(params_to_optimize, args.max_grad_norm)
+                    # Extract all parameters from parameter groups for gradient clipping
+                    all_params = []
+                    for param_group in params_to_optimize:
+                        all_params.extend(param_group["params"])
+                    accelerator.clip_grad_norm_(all_params, args.max_grad_norm)
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
