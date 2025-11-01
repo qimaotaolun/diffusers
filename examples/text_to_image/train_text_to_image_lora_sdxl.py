@@ -364,10 +364,16 @@ def parse_args(input_args=None):
         help="Whether or not to use gradient checkpointing to save memory at the expense of slower backward pass.",
     )
     parser.add_argument(
-        "--learning_rate",
+        "--unet_lr",
         type=float,
         default=1e-4,
-        help="Initial learning rate (after the potential warmup period) to use.",
+        help="Learning rate for UNet.",
+    )
+    parser.add_argument(
+        "--text_encoder_lr",
+        type=float,
+        default=1e-4,
+        help="Learning rate for text encoders.",
     )
     parser.add_argument(
         "--scale_lr",
@@ -494,6 +500,12 @@ def parse_args(input_args=None):
         action="store_true",
         default=False,
         help="Whether to shuffle the order of words in training captions. For example, '1girl, cute, sleep' might become 'cute, sleep, 1girl'.",
+    )
+    parser.add_argument(
+        "--shuffle_keep_tokens",
+        type=int,
+        default=0,
+        help="When shuffling caption tags, keep the first N tags in place (not shuffled). This has no effect if --shuffle_caption_words is not set.",
     )
 
     if input_args is not None:
@@ -825,8 +837,11 @@ def main(args):
         torch.backends.cuda.matmul.allow_tf32 = True
 
     if args.scale_lr:
-        args.learning_rate = (
-            args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
+        args.unet_lr = (
+            args.unet_lr * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
+        )
+        args.text_encoder_lr = (
+            args.text_encoder_lr * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
         )
 
     # Make sure the trainable params are in float32.
@@ -850,16 +865,29 @@ def main(args):
         optimizer_class = torch.optim.AdamW
 
     # Optimizer creation
-    params_to_optimize = list(filter(lambda p: p.requires_grad, unet.parameters()))
+    # Create parameter groups with different learning rates for UNet and text encoders
     if args.train_text_encoder:
-        params_to_optimize = (
-            params_to_optimize
-            + list(filter(lambda p: p.requires_grad, text_encoder_one.parameters()))
-            + list(filter(lambda p: p.requires_grad, text_encoder_two.parameters()))
-        )
+        params_to_optimize = [
+            {
+                "params": list(filter(lambda p: p.requires_grad, unet.parameters())),
+                "lr": args.unet_lr,
+            },
+            {
+                "params": list(filter(lambda p: p.requires_grad, text_encoder_one.parameters()))
+                        + list(filter(lambda p: p.requires_grad, text_encoder_two.parameters())),
+                "lr": args.text_encoder_lr,
+            },
+        ]
+    else:
+        params_to_optimize = [
+            {
+                "params": list(filter(lambda p: p.requires_grad, unet.parameters())),
+                "lr": args.unet_lr,
+            }
+        ]
+    
     optimizer = optimizer_class(
         params_to_optimize,
-        lr=args.learning_rate,
         betas=(args.adam_beta1, args.adam_beta2),
         weight_decay=args.adam_weight_decay,
         eps=args.adam_epsilon,
@@ -918,26 +946,38 @@ def main(args):
             if isinstance(caption, str):
                 # Shuffle words in caption if requested
                 if is_train and args.shuffle_caption_words:
-                    original_caption = caption
-                    # Split by comma to get tags, then shuffle
-                    tags = [tag.strip() for tag in caption.split(',')]
-                    random.shuffle(tags)
+                    # Split by comma to get tags
+                    tags = [tag.strip() for tag in caption.split(',') if tag.strip() != ""]
+                    # Keep the first N tokens unchanged, shuffle the rest
+                    keep_n = max(0, int(getattr(args, "shuffle_keep_tokens", 0)))
+                    keep_n = min(keep_n, len(tags))
+                    if keep_n > 0:
+                        head = tags[:keep_n]
+                        tail = tags[keep_n:]
+                        random.shuffle(tail)
+                        tags = head + tail
+                    else:
+                        random.shuffle(tags)
                     caption = ', '.join(tags)
-                    print(f"Original caption: {original_caption}")
-                    print(f"Shuffled caption: {caption}")
                 captions.append(caption)
             elif isinstance(caption, (list, np.ndarray)):
                 # take a random caption if there are multiple
                 selected_caption = random.choice(caption) if is_train else caption[0]
                 # Shuffle words in caption if requested
                 if is_train and args.shuffle_caption_words and isinstance(selected_caption, str):
-                    original_caption = selected_caption
-                    # Split by comma to get tags, then shuffle
-                    tags = [tag.strip() for tag in selected_caption.split(',')]
-                    random.shuffle(tags)
+                    # Split by comma to get tags
+                    tags = [tag.strip() for tag in selected_caption.split(',') if tag.strip() != ""]
+                    # Keep the first N tokens unchanged, shuffle the rest
+                    keep_n = max(0, int(getattr(args, "shuffle_keep_tokens", 0)))
+                    keep_n = min(keep_n, len(tags))
+                    if keep_n > 0:
+                        head = tags[:keep_n]
+                        tail = tags[keep_n:]
+                        random.shuffle(tail)
+                        tags = head + tail
+                    else:
+                        random.shuffle(tags)
                     selected_caption = ', '.join(tags)
-                    print(f"Original caption: {original_caption}")
-                    print(f"Shuffled caption: {selected_caption}")
                 captions.append(selected_caption)
             else:
                 raise ValueError(
