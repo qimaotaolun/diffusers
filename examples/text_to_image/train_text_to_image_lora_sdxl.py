@@ -489,6 +489,12 @@ def parse_args(input_args=None):
         ],
         help="The image interpolation method to use for resizing images.",
     )
+    parser.add_argument(
+        "--shuffle_caption_words",
+        action="store_true",
+        default=False,
+        help="Whether to shuffle the order of words in training captions. For example, '1girl, cute, sleep' might become 'cute, sleep, 1girl'.",
+    )
 
     if input_args is not None:
         args = parser.parse_args(input_args)
@@ -910,10 +916,27 @@ def main(args):
         captions = []
         for caption in examples[caption_column]:
             if isinstance(caption, str):
+                # Shuffle words in caption if requested
+                if is_train and args.shuffle_caption_words:
+                    original_caption = caption
+                    words = caption.split()
+                    random.shuffle(words)
+                    caption = ' '.join(words)
+                    print(f"Original caption: {original_caption}")
+                    print(f"Shuffled caption: {caption}")
                 captions.append(caption)
             elif isinstance(caption, (list, np.ndarray)):
                 # take a random caption if there are multiple
-                captions.append(random.choice(caption) if is_train else caption[0])
+                selected_caption = random.choice(caption) if is_train else caption[0]
+                # Shuffle words in caption if requested
+                if is_train and args.shuffle_caption_words and isinstance(selected_caption, str):
+                    original_caption = selected_caption
+                    words = selected_caption.split()
+                    random.shuffle(words)
+                    selected_caption = ' '.join(words)
+                    print(f"Original caption: {original_caption}")
+                    print(f"Shuffled caption: {selected_caption}")
+                captions.append(selected_caption)
             else:
                 raise ValueError(
                     f"Caption column `{caption_column}` should contain either strings or lists of strings."
